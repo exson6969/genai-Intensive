@@ -306,3 +306,419 @@ console.log(result.response.text());
 Sentiment: POSITIVE
 ```
 
+### One-shot and few-shot
+
+Providing an example of the expected response is known as a "one-shot" prompt. When you provide multiple examples, it is a "few-shot" prompt.
+
+```
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-flash",
+  generationConfig: {
+    temperature: 0.1,
+    topP:1,
+    maxOutputTokens:250,
+  },
+});
+
+let fewShortPromots = `
+Parse a customer's pizza order into valid JSON:
+
+EXAMPLE:
+I want a small pizza with cheese, tomato sauce, and pepperoni.
+JSON Response:
+
+{
+"size": "small",
+"type": "normal",
+"ingredients": ["cheese", "tomato sauce", "peperoni"]
+}
+
+
+EXAMPLE:
+Can I get a large pizza with tomato sauce, basil and mozzarella
+JSON Response:
+
+{
+"size": "large",
+"type": "normal",
+"ingredients": ["tomato sauce", "basil", "mozzarella"]
+}
+
+ORDER:
+
+`;
+
+let customerOrder = "Give me a large with cheese & pineapple";
+
+const result = await model.generateContent([ fewShortPromots, customerOrder]);
+console.log(result.response.text());
+```
+
+<b>Output:</b>
+```
+
+json
+{
+  "size": "large",
+  "type": "normal",
+  "ingredients": ["cheese", "pineapple"]
+}
+
+```
+
+### JSON mode
+
+```
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-flash",
+  generationConfig: {
+    temperature: 0.1,
+    responseMimeType: "application/json", // add mime type to get response in json format
+    topP:1,
+    maxOutputTokens:250,
+  },
+});
+```
+
+<b>Output:</b>
+```
+{"size": "large", "type": "normal", "ingredients": ["cheese", "pineapple"]}
+```
+
+### Chain of Thought (CoT)
+
+Direct prompting on LLMs can return answers quickly and (in terms of output token usage) efficiently, but they can be prone to hallucination. The answer may "look" correct (in terms of language and syntax) but is incorrect in terms of factuality and reasoning.
+
+Chain-of-Thought prompting is a technique where you instruct the model to output intermediate reasoning steps, and it typically gets better results, especially when combined with few-shot examples. It is worth noting that this technique doesn't completely eliminate hallucinations, and that it tends to cost more to run, due to the increased token count.
+
+```
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-flash-latest",
+});
+
+const prompt = "When I was 4 years old, my partner was 3 times my age. Now, I am 20 years old. How old is my partner? Return the answer directly.";
+
+const result = await model.generateContent(prompt);
+console.log(result.response.text());
+```
+
+<b>Output:</b>
+```
+41
+```
+
+Same approach, but indicatding model to think step by step:
+
+```
+const prompt = "When I was 4 years old, my partner was 3 times my age. Now, I am 20 years old. How old is my partner? Let's think step by step.";
+
+const result = await model.generateContent(prompt);
+console.log(result.response.text());
+```
+
+<b>Output:</b>
+
+```
+
+Step 1: Find the partner's age when you were 4.
+
+* When you were 4, your partner was 3 times your age, so they were 4 * 3 = 12 years old.
+Step 2: Find the age difference between you and your partner.
+
+* The age difference is 12 - 4 = 8 years.
+
+Step 3: Determine your partner's current age.
+
+* You are now 20 years old.
+* Your partner is 8 years older than you, so they are 20 + 8 = 28 years old.
+
+Therefore, your partner is now 28 years old.
+
+```
+
+### ReAct: Reason and act
+
+```
+
+const modelInstruction = `
+Solve a question answering task with interleaving Thought, Action, Observation steps. Thought can reason about the current situation,
+Observation is understanding relevant information from an Action's output and Action can be one of three types:
+ (1) <search>entity</search>, which searches the exact entity on Wikipedia and returns the first paragraph if it exists. If not, it
+     will return some similar entities to search and you can try to search the information from those topics.
+ (2) <lookup>keyword</lookup>, which returns the next sentence containing keyword in the current context. This only does exact matches,
+     so keep your searches short.
+ (3) <finish>answer</finish>, which returns the answer and finishes the task.
+`;
+
+let example1 = `
+Question
+Musician and satirist Allie Goertz wrote a song about the "The Simpsons" character Milhouse, who Matt Groening named after who?
+
+Thought 1
+The question simplifies to "The Simpsons" character Milhouse is named after who. I only need to search Milhouse and find who it is named after.
+
+Action 1
+<search>Milhouse</search>
+
+Observation 1
+Milhouse Mussolini Van Houten is a recurring character in the Fox animated television series The Simpsons voiced by Pamela Hayden and created by Matt Groening.
+
+Thought 2
+The paragraph does not tell who Milhouse is named after, maybe I can look up "named after".
+
+Action 2
+<lookup>named after</lookup>
+
+Observation 2
+Milhouse was named after U.S. president Richard Nixon, whose middle name was Milhous.
+
+Thought 3
+Milhouse was named after U.S. president Richard Nixon, so the answer is Richard Nixon.
+
+Action 3
+<finish>Richard Nixon</finish>
+`;
+
+const example2 = `
+Question
+What is the elevation range for the area that the eastern sector of the Colorado orogeny extends into?
+
+Thought 1
+I need to search Colorado orogeny, find the area that the eastern sector of the Colorado orogeny extends into, then find the elevation range of the area.
+
+Action 1
+<search>Colorado orogeny</search>
+
+Observation 1
+The Colorado orogeny was an episode of mountain building (an orogeny) in Colorado and surrounding areas.
+
+Thought 2
+It does not mention the eastern sector. So I need to look up eastern sector.
+
+Action 2
+<lookup>eastern sector</lookup>
+
+Observation 2
+The eastern sector extends into the High Plains and is called the Central Plains orogeny.
+
+Thought 3
+The eastern sector of Colorado orogeny extends into the High Plains. So I need to search High Plains and find its elevation range.
+
+Action 3
+<search>High Plains</search>
+
+Observation 3
+High Plains refers to one of two distinct land regions
+
+Thought 4
+I need to instead search High Plains (United States).
+
+Action 4
+<search>High Plains (United States)</search>
+
+Observation 4
+The High Plains are a subregion of the Great Plains. From east to west, the High Plains rise in elevation from around 1,800 to 7,000 ft (550 to 2,130m).
+
+Thought 5
+High Plains rise in elevation from around 1,800 to 7,000 ft, so the answer is 1,800 to 7,000 ft.
+
+Action 5
+<finish>1,800 to 7,000 ft</finish>
+`;
+
+const question =  `
+Question
+Who was the youngest author listed on the transformers NLP paper?
+`;
+
+const model = genAI.getGenerativeModel({model:'gemini-1.5-flash-latest', generationConfig: {stopSequences:["\nObservation"]} });
+
+let reactChat = model.startChat();
+
+let result = await reactChat.sendMessage([modelInstruction, example1, example2, question]);
+console.log(result.response.text());
+
+```
+
+<b>Output:</b>
+```
+Thought 1
+I need to find the Transformers NLP paper and then find the authors and their ages.  This will require multiple steps.  First, I'll search for the paper.
+
+Action 1
+<search>Transformers NLP paper</search>
+```
+
+Now you can perform this research yourself and supply it back to the model.
+
+```
+const model = genAI.getGenerativeModel({model:'gemini-1.5-flash-latest', generationConfig: {stopSequences:["\nObservation"]} });
+
+let reactChat = model.startChat();
+
+let result = await reactChat.sendMessage([modelInstruction, example1, example2, question]);
+
+const observation = `Observation 1
+[1706.03762] Attention Is All You Need
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, Illia Polosukhin
+We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.
+`;
+
+result = await reactChat.sendMessage(observation);
+
+console.log(result.response.text());
+
+
+```
+
+<b>Output:</b>
+```
+
+Thought 2
+The observation gives the authors of the paper "Attention is All You Need", but not their ages. I cannot directly answer the question with this information.  I need to find a way to determine the authors' ages. This is likely impossible without additional information readily available online.
+
+Action 2
+<finish>I cannot answer this question. The provided text lists the authors of the "Attention is All You Need" paper but does not include their ages or birthdates, which are necessary to determine the youngest author.</finish>
+
+```
+
+### Generating code
+
+```
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-flash-latest",
+  generationConfig: { temperature: 1, topP: 1, maxOutputTokens: 1024 },
+});
+
+let codePrompt = 'Write a Python function to calculate the factorial of a number. No explanation, provide only the code.';
+
+let result = await model.generateContent(codePrompt);
+console.log(result.response.text());
+
+```
+
+<b>Output:</b>
+```
+python
+def factorial(n):
+  if n == 0:
+    return 1
+  else:
+    return n * factorial(n-1)
+```
+
+### Code execution
+Gemini also have tools : FunctionDeclarationsTool , CodeExecutionTool , GoogleSearchRetrievalTool. We can use CodeExecutionTool for code execution.
+
+```
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-flash-latest",tools: [
+    {
+      codeExecution: {},
+    },
+  ],
+});
+
+let codePrompt = 'Calculate the sum of the first 14 prime numbers. Only consider the odd primes, and make sure you count them all.';
+
+let result = await model.generateContent(codePrompt);
+console.log(result.response.text());
+
+```
+
+<b>Output:</b>
+```
+To calculate the sum of the first 14 odd prime numbers, I need to first identify those numbers.  The first few odd prime numbers are 3, 5, 7, 11, 13, and so on.  I will use Python to generate them and then calculate the sum.
+
+
+PYTHON
+
+def is_prime(n):
+    """Checks if a number is prime."""
+    if n <= 1:
+        return False
+    if n <= 3:
+        return True
+    if n % 2 == 0 or n % 3 == 0:
+        return False
+    i = 5
+    while i * i <= n:
+        if n % i == 0 or n % (i + 2) == 0:
+            return False
+        i += 6
+    return True
+
+count = 0
+sum_primes = 0
+num = 3  # Start with the first odd prime
+
+while count < 14:
+    if is_prime(num):
+        sum_primes += num
+        count += 1
+    num += 2
+
+print(f"The sum of the first 14 odd prime numbers is: {sum_primes}")
+
+
+The sum of the first 14 odd prime numbers is: 326
+
+
+Therefore, the sum of the first 14 odd prime numbers is 326.
+
+```
+
+
+### Explaining code
+
+```
+const url = 'https://raw.githubusercontent.com/magicmonty/bash-git-prompt/refs/heads/master/gitprompt.sh'
+
+const fileContent  = await fetch(url).then(response => response.text());
+
+let explain_prompt = `
+Please explain what this file does at a very high level. What is it, and why would I use it?
+"""
+${fileContent}
+
+"""
+`
+
+const model = genAI.getGenerativeModel({model:'gemini-1.5-flash-latest'});
+
+let result = await model.generateContent(explain_prompt);
+console.log(result.response.text());
+
+```
+
+<b>Output:</b>
+
+```
+This bash script is a highly customizable Git prompt for your terminal.  It enhances the standard bash prompt to display information about your current Git repository, such as 
+branch name, status (ahead/behind, changes, etc.), and even optionally your username and repository URL.
+
+**What it does:**
+
+At a very high level, the script does the following:
+
+1. **Loads a theme:** It selects a color theme for the prompt (allowing for custom themes).
+2. **Gets Git status:** It runs a Git command to get the status of the repository (branches, changes, etc.).
+3. **Formats the prompt:** It formats the information obtained from Git into a visually 
+appealing and informative prompt string.
+4. **Updates the prompt:**  It updates your terminal's prompt string to display the formatted Git information.  It does this automatically after each command.
+5. **Handles asynchronous operations:** Uses background processes for things like fetching remote updates to avoid blocking the user.
+
+
+**Why you'd use it:**
+
+You'd use this script to improve your workflow when working with Git repositories.  The 
+benefits are:
+
+* **Improved awareness:** You can see at a glance the status of your Git repository (branch, changes, etc.) without having to explicitly run `git status`.
+* **Customization:**  A wide range of options are available to tailor the appearance and information displayed in the prompt, including colors, symbols and what information is 
+shown.
+* **Efficiency:**  Reduces the need for manual Git status checks.
+
+
+In short, it's a powerful tool for developers who spend a significant amount of time working with Git.  It makes managing multiple Git branches and tracking changes much easier.
+```
